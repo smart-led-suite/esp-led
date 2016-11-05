@@ -1,0 +1,52 @@
+----------------- Setup: -----------------
+initialize wifi
+initialize pwm
+register interrupts
+
+UDP PORT 915
+
+----------------- Main program: -----------------
+listen for clients
+  take apart GET to get understand request
+    label
+    target_brightness
+    desired fade_time
+  calculate fade parameters
+    time_per_step = ceil(fade_time / target_brightness)
+    step_per_time = ceil(target_brightness / fade_time)
+  get pin that corresponds to label
+  save everything in interrupt-accessible format (e.g. Array)
+yield to WiFi operation
+
+
+----------------- Interrupt: ----------------- every XX milliseconds
+check for each color / pin if it needs to be increased NOW, do if yes
+for each LED
+  if time since last incr > time_per_step
+    new brightness = current + step_per_time
+    re-set time since last incr
+
+----------------- How often interrupt? -----------------
+processor freq 16MHz -> 1ms = 1.6e7 * 1e-3 = 1.6e4 operations -> enough??
+better around every 10ms -> 160k operations
+i.e. fade of 1s = 100 steps -> enough??
+
+----------------- data structure -----------------
+LED
+  int #     pin
+  int #     current_brightness
+  int #     target_brightness
+  int #     time_per_step
+  int #     step_per_time
+  int #     last_incr
+  String    name
+  String    label
+
+----------------- request strucutre -----------------
+GET, one request per pin & fade operation
+parameters
+  l         label of led item OR
+  p         pin to be faded
+  t         fade time
+  b         desired brightness
+later maybe socket server (if possible)
