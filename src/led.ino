@@ -12,17 +12,16 @@ unsigned int localUdpPort = 4210;
 char message[255];
 const int UDP_PORT = 915;
 
+// preparations for timer
 os_timer_t myTimer;
 
-volatile bool on;
-volatile int test = 0;
-
+// TODO put these into a struct or object
 volatile int pins[] = {16,14,12,13,15};
 volatile int target[NUMBER_LEDS];
 volatile int current[NUMBER_LEDS];
 volatile int step[NUMBER_LEDS];
-
-const int led = 14;
+volatile int time_per_step[NUMBER_LEDS];
+volatile int time_since_last[NUMBER_LEDS];
 
 #define WIFISSID "gibtnix_optout"
 #define PASSWORD "n_Pow?sjTn,Zq8."
@@ -30,32 +29,45 @@ const int led = 14;
 char ssid[] = WIFISSID;
 char pass[] = PASSWORD;
 
-//WiFiServer server(80);
 
-// start of timerCallback
+// This function is called every millisecond to
+// fade the LEDs
 void timerCallback(void *pArg)
 {
+  // go through all the LEDs
   for(int i = 0; i < NUMBER_LEDS; i++)
   {
-    if(current[i] > target[i])
+    // skip the whole function if the
+    // time since the last fade step is smaller
+    // than defined by time_per_step (this is to)
+    // allow fade times of more than 1024ms)
+    time_since_last[i]++;
+    if(time_since_last[i] >= time_per_step[i])
     {
-      current[i] -= step[i];
-      if(current[i] < target[i])
-      {
-        current[i] = target[i];
-      }
-    } else if (current[i] < target[i])
-    {
-      current[i] += step[i];
+      // possibility 1: fading down
       if(current[i] > target[i])
       {
-        current[i] = target[i];
+        current[i] -= step[i];
+        // correct if the step was larger than the
+        // difference between current and target
+        if(current[i] < target[i])
+        {
+          current[i] = target[i];
+        }
+      } else if (current[i] < target[i]) // possibility 2: fading up
+      {
+        current[i] += step[i];
+        if(current[i] > target[i])
+        {
+          current[i] = target[i];
+        }
       }
+      // apply the changes to the pin
+      analogWrite(pins[i], current[i]);
+      // reset the time of last fade step
+      time_since_last[i] = 0;
     }
-    analogWrite(pins[i], current[i]);
   }
-
-
 } // End of timerCallback
 
 
@@ -73,7 +85,7 @@ void setup()
 
   // begin wifi connection
   WiFi.begin(ssid, pass);
-  Serial.print("Starting connection ");
+  Serial.print("Starting connection");
   while(WiFi.status() != WL_CONNECTED)
   {
     delay(500);
@@ -94,6 +106,8 @@ void setup()
     current[i] = 0;
     target[i] = 1023;
     step[i] = 1;
+    time_per_step[i] = 5;
+    time_since_last[i] = 0;
   }
 
 
