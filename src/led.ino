@@ -17,11 +17,22 @@ os_timer_t myTimer;
 
 // TODO put these into a struct or object
 volatile int pins[] = {5, 16, 4};
-volatile int target[NUMBER_LEDS];
-volatile int current[NUMBER_LEDS];
-volatile int step[NUMBER_LEDS];
-volatile int time_per_step[NUMBER_LEDS];
-volatile int time_since_last[NUMBER_LEDS];
+// volatile int target[NUMBER_LEDS];
+// volatile int current[NUMBER_LEDS];
+// volatile int step[NUMBER_LEDS];
+// volatile int time_per_step[NUMBER_LEDS];
+// volatile int time_since_last[NUMBER_LEDS];
+
+typedef volatile struct {
+  int pin;
+  int target = 0;
+  int current = 0;;
+  int step = 1;;
+  int time_per_step =1;
+  int time_since_last = 1;
+} LED;
+
+LED leds[NUMBER_LEDS];
 
 volatile int fadetime = 1000;
 
@@ -39,35 +50,36 @@ void timerCallback(void *pArg)
   // go through all the LEDs
   for(int i = 0; i < NUMBER_LEDS; i++)
   {
+    LED* led = &leds[i];
     // skip the whole function if the
     // time since the last fade step is smaller
     // than defined by time_per_step (this is to)
     // allow fade times of more than 1024ms)
-    time_since_last[i]++;
-    if(time_since_last[i] >= time_per_step[i])
+    led->time_since_last++;
+    if(led->time_since_last >= led->time_per_step)
     {
       // possibility 1: fading down
-      if(current[i] > target[i])
+      if(led->current > led->target)
       {
-        current[i] -= step[i];
+        led->current -= led->step;
         // correct if the step was larger than the
         // difference between current and target (overshooting)
-        if(current[i] < target[i])
+        if(led->current < led->target)
         {
-          current[i] = target[i];
+          led->current = led->target;
         }
-      } else if (current[i] < target[i]) // possibility 2: fading up
+      } else if (led->current < led->target) // possibility 2: fading up
       {
-        current[i] += step[i];
-        if(current[i] > target[i])
+        led->current += led->step;
+        if(led->current > led->target)
         {
-          current[i] = target[i];
+          led->current = led->target;
         }
       }
       // apply the changes to the pin
-      analogWrite(pins[i], current[i]);
+      analogWrite(led->pin, led->current);
       // reset the time of last fade step
-      time_since_last[i] = 0;
+      led->time_since_last = 0;
     }
   }
 } // End of timerCallback
@@ -104,15 +116,19 @@ void setup()
   for(int i = 0; i < NUMBER_LEDS; i++)
   {
     pinMode(pins[i], OUTPUT);
+    leds[i].pin = pins[i];
+    leds[i].target = 1023;
+    /*
     current[i] = 0;
     target[i] = 1023;
     step[i] = 1;
     time_per_step[i] = 1;
-    time_since_last[i] = 0;
+    time_since_last[i] = 0;*/
   }
 
 
-
+  // the complete initalization of the interrupts
+  // is outsourced to user_init(), even in a separate file
   user_init();
 }
 
@@ -147,73 +163,77 @@ void loop()
       Serial.println(fadetime);
     } else if(strchr(message, 'f') == &message[0]) { // fade values begin with f
       Serial.println("fade message received");
+      LED* led = &leds[0];
       // take the packet apart by the delimiter ":"
       // the first call of strtok has to be with the target string
-      target[0] = atoi(strtok(message, ":")+1); // +1 to cut off the b which is the first character
+      led->target = atoi(strtok(message, ":")+1); // +1 to cut off the b which is the first character
       // calculate times needed
-      int diff = target[0] - current[0];
-      Serial.println(target[0]);
+      int diff = led->target - led->current;
+      Serial.println(led->target);
       Serial.print("diff: ");
       Serial.println(diff);
       Serial.print("fadetime: ");
       Serial.println(fadetime);
-      step[0] = abs(diff / fadetime); // size of a step is the needed fadesize divided by the time
+      led->step = abs(diff / fadetime); // size of a step is the needed fadesize divided by the time
       // we don't want the step to be zero, nothing is happening then
-      if(step[0] == 0)
-        step[0] = 1; // take the smallest possible value, 1
+      if(led->step == 0)
+        led->step = 1; // take the smallest possible value, 1
       Serial.print("step: ");
-      Serial.println(step[0]);
-      time_per_step[0] = abs(fadetime / diff); // just the other way round
+      Serial.println(led->step);
+      led->time_per_step = abs(fadetime / diff); // just the other way round
       Serial.print("time_per_step: ");
-      Serial.print(time_per_step[0]);
+      Serial.print(led->time_per_step);
       // the following calls with NULL pointer to string
       for(int i = 1; i < NUMBER_LEDS; i++)
       {
+        led = &leds[i];
         const char* pointer = strtok(NULL, ":");
         if(pointer != NULL)
         {
-          target[i] = atoi(pointer);
+          led->target = atoi(pointer);
           Serial.print(".");
-          Serial.println(target[i]);
+          Serial.println(led->target);
           // calculate times needed
-          int diff = target[i] - current[i];
-          Serial.println(target[i]);
+          int diff = led->target - led->current;
+          Serial.println(led->target);
           Serial.print("diff: ");
           Serial.println(diff);
           Serial.print("fadetime: ");
           Serial.println(fadetime);
-          step[i] = abs(diff / fadetime); // size of a step is the needed fadesize divided by the time
+          led->step = abs(diff / fadetime); // size of a step is the needed fadesize divided by the time
           // we don't want the step to be zero, nothing is happening then
-          if(step[i] == 0)
-            step[i] = 1; // take the smallest possible value, 1
+          if(led->step == 0)
+            led->step = 1; // take the smallest possible value, 1
           Serial.print("step: ");
-          Serial.println(step[i]);
-          time_per_step[i] = fadetime / diff; // just the other way round
+          Serial.println(led->step);
+          led->time_per_step = fadetime / diff; // just the other way round
           Serial.print("time_per_step: ");
-          Serial.print(time_per_step[i]);
+          Serial.print(led->time_per_step);
 
         }
       }
     } else if(strchr(message, 'd') == &message[0]) { // d for direct setting
       Serial.println("Direct-set message received");
-      target[0] = atoi(strtok(message, ":")+1); // +1 to cut off the d which is the first character
+      LED* led = &leds[0];
+      led->target = atoi(strtok(message, ":")+1); // +1 to cut off the d which is the first character
       // directly set the value without any interrupt fading
-      current[0] = target[0];
+      led->current = led->target;
       // make sure the interrupt applies the new value as early as possible
-      time_per_step[0] = 1;
-      Serial.print(current[0]);
+      led->time_per_step = 1;
+      Serial.print(led->current);
 
       // the following calls with NULL pointer to string
       for(int i = 1; i < NUMBER_LEDS; i++)
       {
+        led = &leds[i];
         const char* pointer = strtok(NULL, ":");
         if(pointer != NULL) // if there is data
         {
-          target[i] = atoi(pointer);
-          current[i] = target[i];
-          time_per_step[i] = 1;
+          led->target = atoi(pointer);
+          led->current = led->target;
+          led->time_per_step = 1;
           Serial.print(";");
-          Serial.print(current[i]);
+          Serial.print(led->current);
         }
       }
     }
@@ -224,7 +244,7 @@ void loop()
   /*for(int i = 0; i < NUMBER_LEDS; i++)
   {
 
-    analogWrite(pins[i], current[i]);
+    analogWrite(led->pins, led->current);
   }*/
 
   //yield();  // or delay(0);
