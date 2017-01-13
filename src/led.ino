@@ -16,7 +16,7 @@ const int UDP_PORT = 915;
 os_timer_t myTimer;
 
 // TODO put these into a struct or object
-volatile int pins[] = {5, 16, 4};
+volatile int pins[] = {16, 5, 4};
 // volatile int target[NUMBER_LEDS];
 // volatile int current[NUMBER_LEDS];
 // volatile int step[NUMBER_LEDS];
@@ -169,20 +169,23 @@ void loop()
       led->target = atoi(strtok(message, ":")+1); // +1 to cut off the b which is the first character
       // calculate times needed
       int diff = led->target - led->current;
-      Serial.println(led->target);
-      Serial.print("diff: ");
-      Serial.println(diff);
-      Serial.print("fadetime: ");
-      Serial.println(fadetime);
-      led->step = abs(diff / fadetime); // size of a step is the needed fadesize divided by the time
-      // we don't want the step to be zero, nothing is happening then
-      if(led->step == 0)
-        led->step = 1; // take the smallest possible value, 1
-      Serial.print("step: ");
-      Serial.println(led->step);
-      led->time_per_step = abs(fadetime / diff); // just the other way round
-      Serial.print("time_per_step: ");
-      Serial.print(led->time_per_step);
+      if(diff != 0) // prevent division by zero
+      {
+        Serial.println(led->target);
+        Serial.print("diff: ");
+        Serial.println(diff);
+        Serial.print("fadetime: ");
+        Serial.println(fadetime);
+        led->step = abs(diff / fadetime); // size of a step is the needed fadesize divided by the time
+        // we don't want the step to be zero, nothing is happening then
+        if(led->step == 0)
+          led->step = 1; // take the smallest possible value, 1
+        Serial.print("step: ");
+        Serial.println(led->step);
+        led->time_per_step = abs(fadetime / diff); // just the other way round
+        Serial.print("time_per_step: ");
+        Serial.print(led->time_per_step);
+      }
       // the following calls with NULL pointer to string
       for(int i = 1; i < NUMBER_LEDS; i++)
       {
@@ -195,6 +198,8 @@ void loop()
           Serial.println(led->target);
           // calculate times needed
           int diff = led->target - led->current;
+          if(diff == 0) // prevent division by zero
+            continue;
           Serial.println(led->target);
           Serial.print("diff: ");
           Serial.println(diff);
@@ -206,7 +211,7 @@ void loop()
             led->step = 1; // take the smallest possible value, 1
           Serial.print("step: ");
           Serial.println(led->step);
-          led->time_per_step = fadetime / diff; // just the other way round
+          led->time_per_step = abs(fadetime / diff); // just the other way round
           Serial.print("time_per_step: ");
           Serial.print(led->time_per_step);
 
