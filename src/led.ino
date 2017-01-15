@@ -1,21 +1,19 @@
+#include <Arduino.h>
+
 extern "C" {
-  #include "user_interface.h"
+  #include "user_interface.h" // needed for timer access
 }
 #include <ESP8266WiFi.h>
-#include <WiFiUdp.h>
 
 #define NUMBER_LEDS 3
+#define TCP_PORT 915
 
-// necessary preparations for udp
-WiFiUDP Udp;
-unsigned int localUdpPort = 4210;
-char message[255];
-const int UDP_PORT = 915;
+// necessary preparations for tcp
+WiFiServer server(TCP_PORT);
 
 // preparations for timer
 os_timer_t myTimer;
 
-// TODO put these into a struct or object
 volatile int pins[] = {16, 5, 4};
 // volatile int target[NUMBER_LEDS];
 // volatile int current[NUMBER_LEDS];
@@ -35,7 +33,6 @@ typedef volatile struct {
 LED leds[NUMBER_LEDS];
 
 volatile int fadetime = 1000;
-
 #define WIFISSID "gibtnix_optout"
 #define PASSWORD "n_Pow?sjTn,Zq8."
 
@@ -90,40 +87,31 @@ void timerCallback(void *pArg)
 
 void setup()
 {
-  Serial.begin(115200);
-  Serial.println();
-  Serial.println();
 
-  analogWriteFreq(10000);
+    Serial.begin(115200);
+    Serial.println();
 
-  // begin wifi connection
-  WiFi.begin(ssid, pass);
-  Serial.print("Starting connection");
-  while(WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println();
+    Serial.printf("Connecting to %s ", ssid);
+    WiFi.begin(ssid, pass);
+    while (WiFi.status() != WL_CONNECTED)
+    {
+      delay(500);
+      Serial.print(".");
+    }
+    Serial.println(" connected");
 
-  // print IP address
-  Serial.println("Got DHCP IP:");
-  Serial.println(WiFi.localIP());
+    server.begin();
+    Serial.printf("Web server started, open %s in a web browser\n", WiFi.localIP().toString().c_str());
 
-  // open udp
-  Udp.begin(UDP_PORT);
+
+    analogWriteFreq(10000);
+
 
   for(int i = 0; i < NUMBER_LEDS; i++)
   {
     pinMode(pins[i], OUTPUT);
     leds[i].pin = pins[i];
     leds[i].target = 1023;
-    /*
-    current[i] = 0;
-    target[i] = 1023;
-    step[i] = 1;
-    time_per_step[i] = 1;
-    time_since_last[i] = 0;*/
   }
 
 
@@ -136,121 +124,137 @@ void setup()
 void loop()
 {
   //timerCallback(NULL);
-
-  // UDP handling
-  int packet_size = Udp.parsePacket();
-  if(packet_size) // if the packet's size is not zero
+  // TCP handling
+  WiFiClient client = server.available();
+  // wait for a client (web browser) to connect
+  if (client)
   {
-    int len = Udp.read(message, 255);
-    if (len > 0) // check again if there is any content
-    {  // this part is taken from the tutorial
-      message[len] = 0;
-    }
-    Serial.print("len: ");
-    Serial.print(len);
-    Serial.print(" ");
-    Serial.println(message);
-    // check the type of message
-    // setting fade time - e.g. "t2000"
-    // check if first character is 't'
-    if(strchr(message, 't') == &message[0]) { // strchr returns the pointer to the first occurence of 't'
-      Serial.println("Time-set message received");
-      // TODO calculate values
-      fadetime = atoi(message + 1); // +1 to cut off the first character, the "t"
-      if(fadetime == 0) {
-        fadetime = 1; // we can't divide by zero!
-      }
-      Serial.println(fadetime);
-    } else if(strchr(message, 'f') == &message[0]) { // fade values begin with f
-      Serial.println("fade message received");
-      LED* led = &leds[0];
-      // take the packet apart by the delimiter ":"
-      // the first call of strtok has to be with the target string
-      led->target = atoi(strtok(message, ":")+1); // +1 to cut off the b which is the first character
-      // calculate times needed
-      int diff = led->target - led->current;
-      if(diff != 0) // prevent division by zero
+    Serial.println("\n[Client connected]");
+    while (client.connected())
+    {
+      // read line by line what the client (web browser) is requesting
+      if (client.available())
       {
-        Serial.println(led->target);
-        Serial.print("diff: ");
-        Serial.println(diff);
-        Serial.print("fadetime: ");
-        Serial.println(fadetime);
-        led->step = abs(diff / fadetime); // size of a step is the needed fadesize divided by the time
-        // we don't want the step to be zero, nothing is happening then
-        if(led->step == 0)
-          led->step = 1; // take the smallest possible value, 1
-        Serial.print("step: ");
-        Serial.println(led->step);
-        led->time_per_step = abs(fadetime / diff); // just the other way round
-        Serial.print("time_per_step: ");
-        Serial.print(led->time_per_step);
-      }
-      // the following calls with NULL pointer to string
-      for(int i = 1; i < NUMBER_LEDS; i++)
-      {
-        led = &leds[i];
-        const char* pointer = strtok(NULL, ":");
-        if(pointer != NULL)
+        String line = client.readStringUntil('\r');
+        Serial.print("message received: ");
+        Serial.print(line);
+
+        // evaluate the client's request
+        // setting fade time - e.g. "t2000"
+        // check if first character is 't'
+        if(line.charAt(0) == 't')
         {
-          led->target = atoi(pointer);
-          Serial.print(".");
-          Serial.println(led->target);
-          // calculate times needed
-          int diff = led->target - led->current;
-          if(diff == 0) // prevent division by zero
-            continue;
-          Serial.println(led->target);
-          Serial.print("diff: ");
-          Serial.println(diff);
-          Serial.print("fadetime: ");
+          Serial.println("Time-set message received");
+          fadetime = line.substring(1).toInt(); // substring to cut off the 't' at the beginning
+          if(fadetime == 0)
+          {
+            fadetime = 1; // we can't divide by zero!
+          }
+          Serial.print("Fadetime set: ");
           Serial.println(fadetime);
-          led->step = abs(diff / fadetime); // size of a step is the needed fadesize divided by the time
-          // we don't want the step to be zero, nothing is happening then
-          if(led->step == 0)
-            led->step = 1; // take the smallest possible value, 1
-          Serial.print("step: ");
-          Serial.println(led->step);
-          led->time_per_step = abs(fadetime / diff); // just the other way round
-          Serial.print("time_per_step: ");
-          Serial.print(led->time_per_step);
-
-        }
-      }
-    } else if(strchr(message, 'd') == &message[0]) { // d for direct setting
-      Serial.println("Direct-set message received");
-      LED* led = &leds[0];
-      led->target = atoi(strtok(message, ":")+1); // +1 to cut off the d which is the first character
-      // directly set the value without any interrupt fading
-      led->current = led->target;
-      // make sure the interrupt applies the new value as early as possible
-      led->time_per_step = 1;
-      Serial.print(led->current);
-
-      // the following calls with NULL pointer to string
-      for(int i = 1; i < NUMBER_LEDS; i++)
-      {
-        led = &leds[i];
-        const char* pointer = strtok(NULL, ":");
-        if(pointer != NULL) // if there is data
+        } else if(line.charAt(0) == 'f') // check if first char is 'f' for fade
         {
-          led->target = atoi(pointer);
-          led->current = led->target;
-          led->time_per_step = 1;
-          Serial.print(";");
-          Serial.print(led->current);
+          Serial.println("fade message received");
+          LED* led;
+          // take the packet apart by the delimiter ":"
+          int currentColon = 0;
+          int lastColon;
+          int index = 0; // needed to address the correct struct from leds[]
+          String substring;
+          do {
+            led = &leds[index];
+
+            // incr index to use the next led the next time the loop runs
+            index++;
+
+            lastColon = currentColon;
+            currentColon = line.indexOf(':', lastColon + 1);
+            Serial.print(currentColon);
+            if(currentColon != -1) // if we haven't yet reached the last part of the line
+            {
+              substring = line.substring(lastColon + 1, currentColon); // + 1 to cut off the colon itself (or the 'f' in the first time the loop is run)
+            } else
+            {
+              substring = line.substring(lastColon + 1); // substring goes to the end of the line
+            }
+            Serial.print(": ");
+            Serial.println(substring);
+            // apply and calculate values
+            int target = substring.toInt();
+            if(target == -1) // -1 means no change to the led's brightness
+              continue;
+            led->target = target;
+            Serial.print(".");
+            Serial.println(led->target);
+            // calculate times needed
+            int diff = led->target - led->current;
+            if(diff == 0) // prevent division by zero
+              continue;
+            Serial.println(led->target);
+            Serial.print("diff: ");
+            Serial.println(diff);
+            Serial.print("fadetime: ");
+            Serial.println(fadetime);
+            led->step = abs(diff / fadetime); // size of a step is the needed fadesize divided by the time
+            // we don't want the step to be zero, nothing is happening then
+            if(led->step == 0)
+              led->step = 1; // take the smallest possible value, 1
+            Serial.print("step: ");
+            Serial.println(led->step);
+            led->time_per_step = abs(fadetime / diff); // just the other way round
+            Serial.print("time_per_step: ");
+            Serial.println(led->time_per_step);
+
+
+          } while(currentColon != -1 && index < NUMBER_LEDS); // currentColon == -1 means we have reached the end of the string
+        } else if(line.charAt(0) == 's') // 's' for direct brightness setting without fading
+        {
+          Serial.println("Direct-set message received");
+          LED* led;
+          // take the packet apart by the delimiter ":"
+          int currentColon = 0;
+          int lastColon;
+          int index = 0; // needed to address the correct struct from leds[]
+          String substring;
+          do
+          {
+            led = &leds[index];
+
+            // incr index to use the next led the next time
+            index++;
+
+            lastColon = currentColon;
+            currentColon = line.indexOf(':', lastColon + 1);
+            Serial.print(currentColon);
+            if(currentColon != -1) // if we haven't yet reached the last part of the line
+            {
+              substring = line.substring(lastColon + 1, currentColon); // + 1 to cut off the colon itself (or the 'f' in the first time the loop is run)
+            } else
+            {
+              substring = line.substring(lastColon + 1); // substring goes to the end of the line
+            }
+            Serial.print(": ");
+            Serial.println(substring);
+            // apply and calculate values
+            int target = substring.toInt();
+            if(target == -1) // -1 means no change to the led's brightness
+              continue;
+
+            led->target = target;
+            // for direct fading, target and current need to be instantly the same
+            led->current = led->target;
+            led->time_per_step = 1; // make sure it is applied with the next interrupt
+          } while(currentColon != -1 && index < NUMBER_LEDS); // currentColon == -1 means we have reached the end of the string
+          }
         }
       }
-    }
-    Serial.println();
+
+    delay(1); // give the web browser time to receive the data
+
+    // close the connection:
+    client.stop();
+    Serial.println("[Client disonnected]");
   }
-
-  // write to registers
-  /*for(int i = 0; i < NUMBER_LEDS; i++)
-  {
-
-    analogWrite(led->pins, led->current);
-  }*/
 
   //yield();  // or delay(0);
   delay(100);
